@@ -34,52 +34,141 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      JOB_ID: ${{ github.event.inputs.job_id }}
+      SOURCE_TYPE: ${{ github.event.inputs.source_type }}
+      SOURCE_URL: ${{ github.event.inputs.source_url }}
+      APP_NAME: ${{ github.event.inputs.app_name }}
+      PACKAGE_NAME: ${{ github.event.inputs.package_name }}
+      VERSION_NAME: ${{ github.event.inputs.version_name }}
+      VERSION_CODE: ${{ github.event.inputs.version_code }}
+      PERMISSIONS_JSON: ${{ github.event.inputs.permissions }}
+      FEATURES_JSON: ${{ github.event.inputs.features }}
+      WEB2APK_CALLBACK_URL: ${{ secrets.WEB2APK_CALLBACK_URL }}
+      WEB2APK_CALLBACK_TOKEN: ${{ secrets.WEB2APK_CALLBACK_TOKEN }}
     steps:
       - name: Notify running
-        env:
-          WEB2APK_CALLBACK_URL: ${{ secrets.WEB2APK_CALLBACK_URL }}
-          WEB2APK_CALLBACK_TOKEN: ${{ secrets.WEB2APK_CALLBACK_TOKEN }}
-          JOB_ID: ${{ github.event.inputs.job_id }}
+        shell: bash
         run: |
           if [ -n "$WEB2APK_CALLBACK_URL" ] && [ -n "$WEB2APK_CALLBACK_TOKEN" ]; then
             curl -sS -X POST "$WEB2APK_CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -H "X-WEB2APK-CALLBACK-TOKEN: $WEB2APK_CALLBACK_TOKEN" \
-              -d "{\"job_id\":$JOB_ID,\"status\":\"running\",\"progress\":35,\"message\":\"Builder workflow started\"}" >/dev/null
+              -d "{\"job_id\":$JOB_ID,\"status\":\"running\",\"progress\":20,\"message\":\"Initializing Android build runner\"}" >/dev/null || true
           fi
 
-      - name: Placeholder build step
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare web source and build flags
+        shell: bash
         run: |
-          echo "Implement Kotlin WebView template build here"
-          sleep 6
+          mkdir -p android-template/app/src/main/assets
+          rm -rf android-template/app/src/main/assets/*
+
+          WEB_URL="$SOURCE_URL"
+          if [ "$SOURCE_TYPE" = "zip" ]; then
+            SOURCE_ENDPOINT="${WEB2APK_CALLBACK_URL%/callback}/source/${JOB_ID}?token=${WEB2APK_CALLBACK_TOKEN}"
+            curl -fL "$SOURCE_ENDPOINT" -o /tmp/source.zip
+            unzip -o /tmp/source.zip -d android-template/app/src/main/assets
+            WEB_URL="file:///android_asset/index.html"
+          fi
+
+          export WEB_URL
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          import os
+
+          features = {}
+          permissions = []
+          try:
+              features = json.loads(os.environ.get("FEATURES_JSON") or "{}")
+          except Exception:
+              features = {}
+          try:
+              permissions = json.loads(os.environ.get("PERMISSIONS_JSON") or "[]")
+          except Exception:
+              permissions = []
+
+          def as_bool(value, default):
+              if isinstance(value, bool):
+                  return "true" if value else "false"
+              return "true" if default else "false"
+
+          print(f"WEB2APK_WEB_URL={os.environ.get('WEB_URL', '')}")
+          print(f"WEB2APK_PERMISSIONS_CSV={','.join([str(x) for x in permissions])}")
+          print(f"WEB2APK_ENABLE_SWIPE_REFRESH={as_bool(features.get('enable_swipe_refresh'), True)}")
+          print(f"WEB2APK_ENABLE_EXTERNAL_APPS={as_bool(features.get('enable_external_apps'), True)}")
+          print(f"WEB2APK_ENABLE_OFFLINE_PAGE={as_bool(features.get('enable_offline_page'), True)}")
+          print(f"WEB2APK_ENABLE_BACK_NAVIGATION={as_bool(features.get('enable_back_navigation'), True)}")
+          print(f"WEB2APK_ENABLE_SPLASH={as_bool(features.get('enable_splash'), False)}")
+          print(f"WEB2APK_SPLASH_BG={str(features.get('splash_background_color') or '#111827')}")
+          print(f"WEB2APK_SPLASH_LOGO={str(features.get('splash_logo_url') or '')}")
+          PY
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          cd android-template
+          gradle --no-daemon assembleDebug \
+            -Pweb2apkAppName="$APP_NAME" \
+            -Pweb2apkApplicationId="$PACKAGE_NAME" \
+            -Pweb2apkVersionName="$VERSION_NAME" \
+            -Pweb2apkVersionCode="$VERSION_CODE" \
+            -Pweb2apkWebUrl="$WEB2APK_WEB_URL" \
+            -Pweb2apkPermissionsCsv="$WEB2APK_PERMISSIONS_CSV" \
+            -Pweb2apkEnableSwipeRefresh="$WEB2APK_ENABLE_SWIPE_REFRESH" \
+            -Pweb2apkEnableExternalApps="$WEB2APK_ENABLE_EXTERNAL_APPS" \
+            -Pweb2apkEnableOfflinePage="$WEB2APK_ENABLE_OFFLINE_PAGE" \
+            -Pweb2apkEnableBackNavigation="$WEB2APK_ENABLE_BACK_NAVIGATION" \
+            -Pweb2apkEnableSplash="$WEB2APK_ENABLE_SPLASH" \
+            -Pweb2apkSplashBackgroundColor="$WEB2APK_SPLASH_BG" \
+            -Pweb2apkSplashLogoUrl="$WEB2APK_SPLASH_LOGO"
+
+      - name: Upload build artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: web2apk-apk-${{ github.event.inputs.job_id }}
+          path: android-template/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
 
       - name: Notify success
         if: success()
-        env:
-          WEB2APK_CALLBACK_URL: ${{ secrets.WEB2APK_CALLBACK_URL }}
-          WEB2APK_CALLBACK_TOKEN: ${{ secrets.WEB2APK_CALLBACK_TOKEN }}
-          JOB_ID: ${{ github.event.inputs.job_id }}
+        shell: bash
         run: |
           if [ -n "$WEB2APK_CALLBACK_URL" ] && [ -n "$WEB2APK_CALLBACK_TOKEN" ]; then
             curl -sS -X POST "$WEB2APK_CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -H "X-WEB2APK-CALLBACK-TOKEN: $WEB2APK_CALLBACK_TOKEN" \
-              -d "{\"job_id\":$JOB_ID,\"status\":\"success\",\"progress\":100,\"message\":\"Builder workflow completed\"}" >/dev/null
+              -d "{\"job_id\":$JOB_ID,\"status\":\"success\",\"progress\":100,\"message\":\"Builder workflow completed\",\"github_run_id\":${GITHUB_RUN_ID},\"artifact_name\":\"web2apk-apk-${JOB_ID}\"}" >/dev/null || true
           fi
 
       - name: Notify failure
         if: failure()
-        env:
-          WEB2APK_CALLBACK_URL: ${{ secrets.WEB2APK_CALLBACK_URL }}
-          WEB2APK_CALLBACK_TOKEN: ${{ secrets.WEB2APK_CALLBACK_TOKEN }}
-          JOB_ID: ${{ github.event.inputs.job_id }}
+        shell: bash
         run: |
           if [ -n "$WEB2APK_CALLBACK_URL" ] && [ -n "$WEB2APK_CALLBACK_TOKEN" ]; then
             curl -sS -X POST "$WEB2APK_CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -H "X-WEB2APK-CALLBACK-TOKEN: $WEB2APK_CALLBACK_TOKEN" \
-              -d "{\"job_id\":$JOB_ID,\"status\":\"failed\",\"progress\":100,\"error_message\":\"Builder workflow failed\"}" >/dev/null
+              -d "{\"job_id\":$JOB_ID,\"status\":\"failed\",\"progress\":100,\"error_message\":\"Builder workflow failed\"}" >/dev/null || true
           fi
