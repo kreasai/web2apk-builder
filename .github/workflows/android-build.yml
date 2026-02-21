@@ -124,11 +124,11 @@ jobs:
           print(f"WEB2APK_SPLASH_LOGO={str(features.get('splash_logo_url') or '')}")
           PY
 
-      - name: Build debug APK
+      - name: Build debug APK + unsigned release AAB
         shell: bash
         run: |
           cd android-template
-          gradle --no-daemon assembleDebug \
+          gradle --no-daemon assembleDebug bundleRelease \
             -Pweb2apkAppName="$APP_NAME" \
             -Pweb2apkApplicationId="$PACKAGE_NAME" \
             -Pweb2apkVersionName="$VERSION_NAME" \
@@ -151,6 +151,13 @@ jobs:
           path: android-template/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      - name: Upload unsigned AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web2apk-aab-${{ github.event.inputs.job_id }}
+          path: android-template/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
       - name: Notify success
         if: success()
         shell: bash
@@ -159,7 +166,7 @@ jobs:
             curl -sS -X POST "$WEB2APK_CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -H "X-WEB2APK-CALLBACK-TOKEN: $WEB2APK_CALLBACK_TOKEN" \
-              -d "{\"job_id\":$JOB_ID,\"status\":\"success\",\"progress\":100,\"message\":\"Builder workflow completed\",\"github_run_id\":${GITHUB_RUN_ID},\"artifact_name\":\"web2apk-apk-${JOB_ID}\"}" >/dev/null || true
+              -d "{\"job_id\":$JOB_ID,\"status\":\"success\",\"stage\":\"builder\",\"progress\":100,\"message\":\"Builder workflow completed\",\"github_run_id\":${GITHUB_RUN_ID},\"artifact_name\":\"web2apk-apk-${JOB_ID}\",\"artifact_name_aab\":\"web2apk-aab-${JOB_ID}\"}" >/dev/null || true
           fi
 
       - name: Notify failure
@@ -170,5 +177,5 @@ jobs:
             curl -sS -X POST "$WEB2APK_CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -H "X-WEB2APK-CALLBACK-TOKEN: $WEB2APK_CALLBACK_TOKEN" \
-              -d "{\"job_id\":$JOB_ID,\"status\":\"failed\",\"progress\":100,\"error_message\":\"Builder workflow failed\"}" >/dev/null || true
+              -d "{\"job_id\":$JOB_ID,\"status\":\"failed\",\"stage\":\"builder\",\"progress\":100,\"error_message\":\"Builder workflow failed\"}" >/dev/null || true
           fi
