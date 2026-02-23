@@ -12,7 +12,7 @@ on:
       source_url:
         required: false
         type: string
-      source_zip_path:
+      icon_path:
         required: false
         type: string
       app_name:
@@ -48,6 +48,7 @@ jobs:
       PACKAGE_NAME: ${{ github.event.inputs.package_name }}
       VERSION_NAME: ${{ github.event.inputs.version_name }}
       VERSION_CODE: ${{ github.event.inputs.version_code }}
+      ICON_PATH: ${{ github.event.inputs.icon_path }}
       PERMISSIONS_JSON: ${{ github.event.inputs.permissions }}
       FEATURES_JSON: ${{ github.event.inputs.features }}
       WEB2APK_CALLBACK_URL: ${{ secrets.WEB2APK_CALLBACK_URL }}
@@ -123,6 +124,36 @@ jobs:
           print(f"WEB2APK_SPLASH_BG={str(features.get('splash_background_color') or '#111827')}")
           print(f"WEB2APK_SPLASH_LOGO={str(features.get('splash_logo_url') or '')}")
           PY
+
+
+      - name: Download icon
+        shell: bash
+        run: |
+          if [ -n "$ICON_PATH" ]; then
+            ICON_ENDPOINT="${WEB2APK_CALLBACK_URL%/callback}/icon/${JOB_ID}?token=${WEB2APK_CALLBACK_TOKEN}"
+            curl -fL "$ICON_ENDPOINT" -o /tmp/icon.png
+            
+            # Create standard res folders
+            mkdir -p android-template/app/src/main/res/mipmap-mdpi
+            mkdir -p android-template/app/src/main/res/mipmap-hdpi
+            mkdir -p android-template/app/src/main/res/mipmap-xhdpi
+            mkdir -p android-template/app/src/main/res/mipmap-xxhdpi
+            mkdir -p android-template/app/src/main/res/mipmap-xxxhdpi
+            
+            # Overwrite the default icon
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-mdpi/ic_launcher.png
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-hdpi/ic_launcher.png
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            
+            # Make ic_launcher_round if exists, to ensure uniformity
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-mdpi/ic_launcher_round.png || true
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-hdpi/ic_launcher_round.png || true
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png || true
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png || true
+            cp /tmp/icon.png android-template/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png || true
+          fi
 
       - name: Build debug APK + unsigned release AAB
         shell: bash
