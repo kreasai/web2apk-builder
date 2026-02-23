@@ -12,6 +12,9 @@ on:
       source_url:
         required: false
         type: string
+      source_zip_path:
+        required: false
+        type: string
       icon_path:
         required: false
         type: string
