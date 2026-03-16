@@ -176,8 +176,7 @@ jobs:
             ICON_ENDPOINT="${WEB2APK_CALLBACK_URL%/callback}/icon/${JOB_ID}?token=${WEB2APK_CALLBACK_TOKEN}"
             curl -fL "$ICON_ENDPOINT" -o /tmp/raw_icon.png
 
-            # Auto-fit uploaded icon into Android launcher square without cropping odd aspect ratios
-            convert /tmp/raw_icon.png -background "$WEB2APK_ICON_BG" -gravity center -resize 512x512 -extent 512x512 -alpha remove -alpha off -format png /tmp/master_icon.png
+            convert /tmp/raw_icon.png -background none -gravity center -resize 512x512 -extent 512x512 PNG32:/tmp/master_icon.png
             cp /tmp/master_icon.png /tmp/master_icon_round.png
 
             mkdir -p android-template/app/src/main/res/mipmap-mdpi
